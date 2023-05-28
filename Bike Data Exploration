@@ -1,0 +1,144 @@
+## First I had to set my working directory
+setwd("C:/Users/rache/Downloads/biker")
+getwd()
+
+## Installing the packages I would need for the project
+install.packages('tidyverse')
+install.packages('janitor')
+install.packages('skimr')
+install.packages('dplyr')
+
+library(tidyverse)
+library(janitor)
+library(skimr)
+library(lubridate)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+
+
+## Assigning the csvs to each month they correspond with 
+jan_trips<-read.csv('202201-divvy-tripdata.csv')
+feb_trips<-read.csv('202202-divvy-tripdata.csv')
+mar_trips<-read.csv('202203-divvy-tripdata.csv')
+apr_trips<-read.csv('202204-divvy-tripdata.csv')
+may_trips<-read.csv('202205-divvy-tripdata.csv')
+june_trips<-read.csv('202206-divvy-tripdata.csv')
+july_trips<-read.csv('202207-divvy-tripdata.csv')
+aug_trips<-read.csv('202208-divvy-tripdata.csv')
+sep_trips<-read.csv('202209-divvy-publictripdata.csv')
+oct_trips<-read.csv('202210-divvy-tripdata.csv')
+nov_trips<-read.csv('202211-divvy-tripdata.csv')
+dec_trips<-read.csv('202212-divvy-tripdata.csv')
+
+## Examining each data frame to ensure they are consistant
+head(jan_trips)
+head(feb_trips)
+head(mar_trips)
+head(apr_trips)
+head(may_trips)
+head(june_trips)
+head(july_trips)
+head(aug_trips)
+head(sep_trips)
+head(oct_trips)
+head(nov_trips)
+head(dec_trips)
+
+## Combining them all into one data frame
+all_rides<-bind_rows(jan_trips,feb_trips,mar_trips,apr_trips,may_trips,june_trips,july_trips,aug_trips,sep_trips,oct_trips,nov_trips,dec_trips)
+
+## Deleting all columns that are not needed for my examination
+all_rides<-all_rides %>%
+  select(-c (start_station_id, end_station_id,start_lat, start_lng, end_lat, end_lng))
+
+## Removing all rows with NAN values
+all_rides<-na.omit(all_rides)
+
+## Removing dupicate rows
+all_rides<-distinct(all_rides)
+
+## Renaming docked_bike to classic_bike as that is how they are renamed in the original files
+all_rides$rideable_type <- ifelse(all_rides$rideable_type == "docked_bike", "classic_bike", all_rides$rideable_type)
+
+## Creating a new row for ride lengths by taking the differance between the ended_at times and started_at times
+all_rides$ride_length<-difftime(all_rides$ended_at, all_rides$started_at, unit="mins")
+
+## Removing all rows where the ride_length in negative
+all_rides<-all_rides[!(all_rides$ride_length <= 0), ]
+
+## Rounding ride_length to a whole number
+all_rides$ride_length<-round(all_rides$ride_length, digits= 1)
+
+## Creating new columns for date, year, month, and day
+all_rides$date<-as.Date(all_rides$started_at)
+all_rides$month<-format(as.Date(all_rides$date), "%m")
+all_rides$day<-format(as.Date(all_rides$date), "%d")
+all_rides$year<-format(as.Date(all_rides$date), "%Y")
+all_rides$day_of_week<-format(as.Date(all_rides$date), "%A")
+
+## Ordering the days_of_week column correctly
+all_rides$day_of_week<- ordered (all_rides$day_of_week, levels= c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+
+## Renaming the month column from digits to their proper names: i.e. 01 becomes "January"
+all_rides <- all_rides %>%
+  mutate(month = case_when(month == "01" ~ "January",
+                           month == "02" ~ "February",
+                           month == "03" ~ "March",
+                           month == "04" ~ "April",
+                           month == "05" ~ "May",
+                           month == "06" ~ "June",
+                           month == "07" ~ "July",
+                           month == "08" ~ "August",
+                           month == "09" ~ "September",
+                           month == "10" ~ "October",
+                           month == "11" ~ "November",
+                           month == "12" ~ "December"))
+
+## Making sure all the months are displayed in the right order when I creat my charts
+all_rides$month <- factor(all_rides$month, levels = c("January", "February", "March", "April", "May", "June",
+                                                      "July", "August", "September", "October", "November", "December"))
+
+## Turning the ride_length into numeric for calculations
+all_rides$ride_length<-as.numeric(as.character(all_rides$ride_length))
+
+summary(all_rides$ride_length)
+
+## After running a summary on ride_lengths I noticed some outliars, so I needed to restrict my data to rides lasting longer than one minute and shorter than 24 hours
+all_rides<-all_rides[!(all_rides$ride_length<1 | all_rides$ride_length>1440), ]
+
+## Taking a quick summary of my data compairing the ride lengths of casual users and members per weekday
+all_rides %>%
+  mutate(weekday = wday(started_at, label = TRUE)) %>%
+  group_by(member_casual, weekday) %>%
+  summarise(number_of_rides = n(), average_duration = mean(ride_length)) %>%
+  arrange(member_casual, weekday)
+
+## Creating a graph compairing casual users and members per weekday
+all_rides %>%
+  mutate(weekday = wday(started_at, label = TRUE)) %>%
+  group_by(member_casual, weekday) %>%
+  summarise(number_of_rides = n(), average_duration = mean(ride_length)) %>%
+  arrange(member_casual, weekday)%>%
+  ggplot(aes(x=weekday,y=number_of_rides, fill=member_casual))+
+  geom_col(position="dodge")+
+  labs(x= "Weekday", y=" Number of Rides",title="Amount of Rides for Each Rider Type", subtitle= "Sorted by day of the week")+
+  scale_y_continuous(breaks= c(100000, 200000, 300000, 400000, 500000), labels= c("100k", "200k", "300k", "400k", "500k"))
+
+## Creating a graph compairing casual users and members per month
+all_rides %>%
+  group_by(member_casual, month) %>%
+  summarise(total_rides = n(), 'average_duration_(mins)' = mean(ride_length)) %>%
+  arrange(member_casual) %>%
+  ggplot(aes(x = month, y = total_rides, fill = member_casual)) +
+  geom_col(position="dodge") +
+  labs(x = "Month", y = "Total Rides", title = "Number of Rides by Rider Type", subtitle = "Sorted by Month") +
+  scale_y_continuous(breaks = c(100000, 200000, 300000, 400000), labels = c("100k", "200k", "300k", "400k")) +
+  theme(axis.text.x = element_text(angle = 45))
+
+## Creating a graph compairing which bikes are used more: classic bikes or electric
+all_rides%>%
+  ggplot(aes (x=rideable_type, fill= member_casual))+
+  geom_bar(position="dodge")+
+  labs(x="Type of Bike", y="Number of Rentals", title= "Number of Bike Rentals", subtitle="Type of Membersip")+
+  scale_y_continuous (breaks= c(500000, 1000000, 1500000), labels= c("500k", "1 Mil", "1.5 Mil"))
